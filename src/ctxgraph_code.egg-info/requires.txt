@@ -1,5 +1,0 @@
-typer>=0.9
-rich>=13.0
-
-[dev]
-pytest>=7.0
