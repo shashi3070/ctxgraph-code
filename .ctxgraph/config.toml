@@ -1,0 +1,9 @@
+# ctxgraph-code configuration
+
+[graph]
+# Additional exclude patterns (gitignore is used automatically)
+exclude = []
+# Follow symlinks when scanning files
+follow_symlinks = false
+# Skip files larger than this many MB
+max_file_size_mb = 5
