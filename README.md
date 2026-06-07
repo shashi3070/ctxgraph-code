@@ -47,10 +47,20 @@ ctxgraph-code setup
 ctxgraph-code setup
 ```
 
+Interactive walkthrough — prompts for:
+- **File extensions** to scan (`.py`, `.js`, `.ts`, etc.)
+- **Exclude patterns** (folders like `tests/`, globs like `*.generated.py`)
+
 Does everything in one step:
-1. Creates `.ctxgraph/config.toml` with defaults
-2. Builds the knowledge graph from all Python files
+1. Creates `.ctxgraph/config.toml` with your chosen extensions and excludes
+2. Builds the knowledge graph from all matching files
 3. Creates `.claude/commands/ctxgraph-code.md` with instructions for Claude Code
+
+Non-interactive mode (skip prompts):
+```bash
+ctxgraph-code setup --extensions .py,.js,.ts --exclude tests/,examples/
+ctxgraph-code setup -y                                 # all defaults
+```
 
 ### `init`
 
@@ -64,10 +74,12 @@ Creates the `.ctxgraph/` directory with a default `config.toml`.
 
 ```bash
 ctxgraph-code build
-ctxgraph-code build --exclude "tests/" --exclude "*.generated.py"
+ctxgraph-code build --extensions .py,.js,.ts
+ctxgraph-code build --exclude tests/ --exclude *.generated.py
 ```
 
-Scans all `*.py` files in the project, runs AST analysis:
+Scans all matching files in the project, runs AST analysis. Extensions are read from config (`.py` by default, or whatever was set in `setup`).
+
 - **Imports**: which files import other files
 - **Class definitions**: class names, base classes, methods
 - **Function definitions**: function names, arguments
@@ -75,6 +87,8 @@ Scans all `*.py` files in the project, runs AST analysis:
 - **Docstrings**: extracted as node summaries
 
 Stores the result in `.ctxgraph/graph.db`.
+
+> The graph is a **static snapshot**. If code changes, run `ctxgraph-code build` again to refresh. Claude Code will also rebuild when it detects the graph is stale.
 
 ### `query`
 
@@ -211,11 +225,13 @@ Claude then uses these commands as needed during the conversation.
 
 ## Configuration
 
-Configure via `.ctxgraph/config.toml` (created by `init` or `setup`):
+Configure via `.ctxgraph/config.toml` (created interactively by `setup` or manually):
 
 ```toml
 [graph]
-# Additional exclude patterns beyond defaults
+# File extensions to scan
+extensions = [".py", ".js", ".ts"]
+# Exclude patterns beyond built-in defaults
 exclude = ["tests/", "examples/"]
 # Follow symlinks when scanning
 follow_symlinks = false
@@ -223,7 +239,7 @@ follow_symlinks = false
 max_file_size_mb = 5
 ```
 
-Default exclusion patterns: `__pycache__`, `*.pyc`, `.git`, `node_modules`, `venv`, `.venv`, `dist`, `build`, `*.egg-info`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `migrations`, `*.min.js`, `*.min.css`.
+Built-in default exclusion patterns (always applied): `__pycache__`, `*.pyc`, `.git`, `node_modules`, `venv`, `.venv`, `dist`, `build`, `*.egg-info`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `migrations`, `*.min.js`, `*.min.css`.
 
 ---
 

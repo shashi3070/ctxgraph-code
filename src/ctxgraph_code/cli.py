@@ -24,10 +24,24 @@ app = typer.Typer(name="ctxgraph-code", help="Code knowledge graph for Claude Co
 console = Console()
 
 
+def _build_time_label(storage) -> str:
+    ts = storage.get_metadata("build_time")
+    if ts:
+        try:
+            from datetime import datetime
+            dt = datetime.fromtimestamp(float(ts))
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ts
+    return "unknown"
+
+
 SLASH_COMMAND_TEMPLATE = """# ctxgraph-code: Code Relationship Graph
 
 This project has a knowledge graph at `.ctxgraph/graph.db`.
 The graph knows about imports, class hierarchies, and function calls.
+
+**Last build:** {build_time}
 
 **Available commands** (run these as shell commands in the terminal):
 
@@ -43,6 +57,9 @@ The graph knows about imports, class hierarchies, and function calls.
 - When exploring an unfamiliar area, run `query` to find relevant files, then read them.
 - When asked about architecture, run `overview` for the big picture.
 - For complex tasks, run `context "what I need to do"` for a focused summary.
+
+**Note:** The graph is a static snapshot. If files have changed since the last build,
+run `ctxgraph-code build` to refresh it.
 """
 
 
@@ -70,11 +87,14 @@ def build(
     repo_path: Optional[str] = typer.Argument(
         None, help="Path to repository (default: current directory)"
     ),
+    extensions: Optional[str] = typer.Option(
+        None, "--extensions", help="File extensions to scan, e.g. .py,.js,.ts"
+    ),
     exclude: Optional[list[str]] = typer.Option(
         None, "--exclude", "-e", help="Additional exclude patterns"
     ),
 ):
-    """Build the knowledge graph from Python source files."""
+    """Build the knowledge graph from source files."""
     path = Path(repo_path).resolve() if repo_path else Path.cwd()
 
     settings = Settings(path)
@@ -82,11 +102,16 @@ def build(
     if exclude:
         user_patterns = list((user_patterns or []) + exclude)
 
+    exts = settings.extensions
+    if extensions:
+        exts = [e.strip() for e in extensions.split(",") if e.strip()]
+
     if not (path / ".ctxgraph").exists():
         (path / ".ctxgraph").mkdir(parents=True, exist_ok=True)
 
-    with console.status(f"Analyzing {path}..."):
-        stats = build_graph(path, exclude_patterns=user_patterns)
+    ext_label = ", ".join(exts)
+    with console.status(f"Scanning {ext_label} files in {path}..."):
+        stats = build_graph(path, exclude_patterns=user_patterns, extensions=exts)
 
     table = Table(title="Graph Build Complete")
     table.add_column("Metric", style="cyan")
@@ -247,16 +272,52 @@ def setup(
     repo_path: Optional[str] = typer.Argument(
         None, help="Path to repository (default: current directory)"
     ),
+    extensions: Optional[str] = typer.Option(
+        None, "--extensions", help="File extensions to scan, e.g. .py,.js,.ts"
+    ),
+    exclude: Optional[str] = typer.Option(
+        None, "--exclude", help="Exclude patterns, e.g. tests/,examples/"
+    ),
+    non_interactive: bool = typer.Option(
+        False, "--yes", "-y", help="Skip prompts, use defaults"
+    ),
 ):
-    """Initialize config, build the graph, and configure Claude Code integration."""
+    """Initialize config, build the graph, and configure Claude Code."""
     path = Path(repo_path).resolve() if repo_path else Path.cwd()
 
-    init_project(path)
+    if non_interactive:
+        exts = [".py"]
+        excl = []
+    elif extensions:
+        exts = [e.strip() for e in extensions.split(",") if e.strip()]
+        excl = [e.strip() for e in exclude.split(",") if e.strip()] if exclude else []
+    else:
+        console.print("[bold cyan]ctxgraph-code setup[/bold cyan]")
+        console.print("Let's configure your project graph.\n")
+
+        ext_input = typer.prompt(
+            "File extensions to scan (comma-separated)",
+            default=".py",
+            prompt_suffix=": ",
+        )
+        exts = [e.strip() for e in ext_input.split(",") if e.strip()]
+        if not exts:
+            exts = [".py"]
+
+        excl_input = typer.prompt(
+            "Exclude patterns (comma-separated, e.g. tests/,examples/)",
+            default="",
+            prompt_suffix=": ",
+        )
+        excl = [e.strip() for e in excl_input.split(",") if e.strip()] if excl_input.strip() else []
+
+        console.print()
+
+    init_project(path, extensions=exts, exclude_patterns=excl)
     console.print(f"[green][OK] Initialized .ctxgraph/[/green]")
 
-    settings = Settings(path)
-    with console.status(f"Building graph for {path}..."):
-        stats = build_graph(path, exclude_patterns=settings.exclude_patterns)
+    with console.status(f"Scanning {', '.join(exts)} files in {path}..."):
+        stats = build_graph(path, exclude_patterns=excl, extensions=exts)
 
     table = Table(title="Graph Build Complete")
     table.add_column("Metric", style="cyan")
@@ -273,8 +334,13 @@ def setup(
     claude_dir = path / ".claude" / "commands"
     claude_dir.mkdir(parents=True, exist_ok=True)
     slash_path = claude_dir / "ctxgraph-code.md"
+
+    storage = get_storage(path)
+    build_label = _build_time_label(storage) if storage else "unknown"
+    content = SLASH_COMMAND_TEMPLATE.format(build_time=build_label)
+
     if not slash_path.exists():
-        slash_path.write_text(SLASH_COMMAND_TEMPLATE, encoding="utf-8")
+        slash_path.write_text(content, encoding="utf-8")
         console.print(f"[green][OK] Created {slash_path}[/green]")
     else:
         console.print(f"[yellow]  Skipped (already exists): {slash_path}[/yellow]")

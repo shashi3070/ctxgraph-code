@@ -16,6 +16,7 @@ def build_graph(
     repo_path: str | Path,
     db_path: Optional[str | Path] = None,
     exclude_patterns: Optional[list[str]] = None,
+    extensions: Optional[list[str]] = None,
 ) -> dict:
     repo_path = Path(repo_path).resolve()
     if db_path is None:
@@ -29,8 +30,9 @@ def build_graph(
     combined = Graph()
     stats = {"files_analyzed": 0, "files_skipped": 0, "errors": 0}
 
-    python_files = list(repo_path.rglob("*.py"))
-    for file_path in python_files:
+    exts = set(extensions or [".py"])
+    scan_files = [f for f in repo_path.rglob("*") if f.suffix in exts and f.is_file()]
+    for file_path in scan_files:
         if should_exclude(file_path, repo_path, exclude_patterns):
             stats["files_skipped"] += 1
             continue

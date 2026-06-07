@@ -8,6 +8,7 @@ from typing import Optional
 
 DEFAULT_CONFIG = {
     "graph": {
+        "extensions": [".py"],
         "exclude": [],
         "follow_symlinks": False,
         "max_file_size_mb": 5,
@@ -44,6 +45,11 @@ class Settings:
             self._deep_merge(self._data, parsed)
 
     @property
+    def extensions(self) -> list[str]:
+        exts = self._data["graph"].get("extensions", [".py"])
+        return [e if e.startswith(".") else f".{e}" for e in exts]
+
+    @property
     def exclude_patterns(self) -> list[str]:
         return self._data["graph"].get("exclude", [])
 
@@ -67,8 +73,10 @@ class Settings:
                 key = key.strip()
                 value = value.strip()
 
-                if (value.startswith('"') and value.endswith('"')) or \
-                   (value.startswith("'") and value.endswith("'")):
+                if value.startswith("[") and value.endswith("]"):
+                    value = Settings._parse_toml_array(value)
+                elif (value.startswith('"') and value.endswith('"')) or \
+                     (value.startswith("'") and value.endswith("'")):
                     value = value[1:-1]
                 else:
                     value = Settings._parse_toml_value(value)
@@ -76,6 +84,21 @@ class Settings:
                 current_section[key] = value
 
         return result
+
+    @staticmethod
+    def _parse_toml_array(text: str) -> list:
+        inner = text[1:-1].strip()
+        if not inner:
+            return []
+        items = []
+        for item in inner.split(","):
+            item = item.strip()
+            if (item.startswith('"') and item.endswith('"')) or \
+               (item.startswith("'") and item.endswith("'")):
+                items.append(item[1:-1])
+            else:
+                items.append(Settings._parse_toml_value(item))
+        return items
 
     @staticmethod
     def _parse_toml_value(value: str):
@@ -97,7 +120,11 @@ class Settings:
                 base[key] = value
 
 
-def create_default_config(repo_path: Path):
+def create_default_config(
+    repo_path: Path,
+    extensions: Optional[list[str]] = None,
+    exclude_patterns: Optional[list[str]] = None,
+):
     config_dir = repo_path / ".ctxgraph"
     config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -105,12 +132,20 @@ def create_default_config(repo_path: Path):
     if config_path.exists():
         return
 
+    ext_list = extensions or [".py"]
+    ext_line = ", ".join(f'"{e}"' for e in ext_list)
+
+    excl_list = exclude_patterns or []
+    excl_line = ", ".join(f'"{e}"' for e in excl_list) if excl_list else ""
+
     config_path.write_text(
-        """# ctxgraph-code configuration
+        f"""# ctxgraph-code configuration
 
 [graph]
-# Additional exclude patterns (gitignore is used automatically)
-exclude = []
+# File extensions to scan
+extensions = [{ext_line}]
+# Exclude patterns (gitignore patterns are excluded automatically)
+exclude = [{excl_line}]
 # Follow symlinks when scanning files
 follow_symlinks = false
 # Skip files larger than this many MB

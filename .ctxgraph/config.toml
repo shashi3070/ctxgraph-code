@@ -1,8 +1,10 @@
 # ctxgraph-code configuration
 
 [graph]
-# Additional exclude patterns (gitignore is used automatically)
-exclude = []
+# File extensions to scan
+extensions = [".py", ".js", ".ts"]
+# Exclude patterns (gitignore patterns are excluded automatically)
+exclude = ["tests/"]
 # Follow symlinks when scanning files
 follow_symlinks = false
 # Skip files larger than this many MB

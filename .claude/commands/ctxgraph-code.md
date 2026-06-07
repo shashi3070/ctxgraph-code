@@ -3,6 +3,8 @@
 This project has a knowledge graph at `.ctxgraph/graph.db`.
 The graph knows about imports, class hierarchies, and function calls.
 
+**Last build:** 2026-06-07 12:17
+
 **Available commands** (run these as shell commands in the terminal):
 
 - `ctxgraph-code query "search terms"` -- Find relevant files, classes, and functions
@@ -17,3 +19,6 @@ The graph knows about imports, class hierarchies, and function calls.
 - When exploring an unfamiliar area, run `query` to find relevant files, then read them.
 - When asked about architecture, run `overview` for the big picture.
 - For complex tasks, run `context "what I need to do"` for a focused summary.
+
+**Note:** The graph is a static snapshot. If files have changed since the last build,
+run `ctxgraph-code build` to refresh it.
