@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
-import os
+from ctxgraph_code.exclude.patterns import DEFAULT_EXCLUDE
 from pathlib import Path
 from typing import Optional
 
 
 DEFAULT_CONFIG = {
     "graph": {
-        "extensions": [".py"],
+        "extensions": [".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".c", ".h", ".cpp", ".java", ".rb", ".kt", ".swift"],
         "exclude": [],
         "follow_symlinks": False,
         "max_file_size_mb": 5,
@@ -52,6 +51,14 @@ class Settings:
     @property
     def exclude_patterns(self) -> list[str]:
         return self._data["graph"].get("exclude", [])
+
+    @property
+    def follow_symlinks(self) -> bool:
+        return self._data["graph"].get("follow_symlinks", False)
+
+    @property
+    def max_file_size_mb(self) -> int:
+        return self._data["graph"].get("max_file_size_mb", 5)
 
     def to_dict(self) -> dict:
         return dict(self._data)
@@ -132,22 +139,27 @@ def create_default_config(
     if config_path.exists():
         return
 
-    ext_list = extensions or [".py"]
+    ext_list = extensions or [".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".c", ".h", ".cpp", ".java", ".rb", ".kt", ".swift"]
     ext_line = ", ".join(f'"{e}"' for e in ext_list)
 
-    excl_list = exclude_patterns or []
-    excl_line = ", ".join(f'"{e}"' for e in excl_list) if excl_list else ""
+    excl_list = exclude_patterns or list(DEFAULT_EXCLUDE)
+    excl_line = ", ".join(f'"{e}"' for e in excl_list)
 
     config_path.write_text(
         f"""# ctxgraph-code configuration
+# Edit this file to customize scanning behavior.
 
 [graph]
 # File extensions to scan
 extensions = [{ext_line}]
-# Exclude patterns (gitignore patterns are excluded automatically)
+
+# Directories and patterns to exclude (gitignore-style).
+# Built-in defaults applied automatically: __pycache__, .git, venv, node_modules, etc.
 exclude = [{excl_line}]
+
 # Follow symlinks when scanning files
 follow_symlinks = false
+
 # Skip files larger than this many MB
 max_file_size_mb = 5
 """,

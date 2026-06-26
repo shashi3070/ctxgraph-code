@@ -5,3 +5,8 @@ __pycache__/
 dist/
 build/
 *.db
+.ctxgraph/
+graphify-out/
+test_langs/
+test_project/
+tmp_bench/

@@ -235,6 +235,107 @@ def render_context(storage: Storage, query: str, max_nodes: int = 15) -> str:
     return "\n".join(lines)
 
 
+def render_treeview(storage: Storage) -> str:
+    all_nodes = storage.get_all_nodes()
+    all_edges = storage.get_all_edges()
+
+    file_nodes = sorted([n for n in all_nodes if n.type == "file"], key=lambda n: n.path or "")
+    symbol_map: dict[str, list[Node]] = {}
+    for n in all_nodes:
+        if n.type != "file":
+            symbol_map.setdefault(n.parent_id or "", []).append(n)
+
+    dir_tree: dict[str, dict] = {}
+    for node in file_nodes:
+        parts = (node.path or node.name).split("/")
+        for i in range(len(parts)):
+            parent = "/".join(parts[:i]) if i > 0 else "."
+            child = parts[i]
+            if parent not in dir_tree:
+                dir_tree[parent] = {"dirs": set(), "files": []}
+            if i == len(parts) - 1:
+                dir_tree[parent]["files"].append(node)
+            else:
+                dir_tree[parent]["dirs"].add(child)
+
+    stats = storage.stats()
+    bt = storage.get_metadata("build_time")
+    build_label = ""
+    if bt:
+        try:
+            from datetime import datetime
+            build_label = f" (built {datetime.fromtimestamp(float(bt)).strftime('%Y-%m-%d %H:%M')})"
+        except Exception:
+            pass
+
+    lines = [
+        f".ctxgraph/graph.db  ({stats['nodes']} nodes, {stats['edges']} edges){build_label}",
+        "",
+    ]
+
+    def _render_dir(parent: str, prefix: str = ""):
+        entry = dir_tree.get(parent, {"dirs": set(), "files": []})
+        items: list[tuple[str, object]] = []
+        for d in sorted(entry["dirs"]):
+            items.append(("dir", d))
+        for f in sorted(entry["files"], key=lambda x: x.path or x.name):
+            items.append(("file", f))
+
+        for idx, (kind, obj) in enumerate(items):
+            last = idx == len(items) - 1
+            connector = "\\-- " if last else "+-- "
+            ext = "    " if last else "|   "
+
+            if kind == "dir":
+                name = str(obj)
+                lines.append(f"{prefix}{connector}{name}/")
+                child = name if parent == "." else parent + "/" + name
+                _render_dir(child, prefix + ext)
+            else:
+                node = obj
+                basename = (node.path or node.name).split("/")[-1]
+                lines.append(f"{prefix}{connector}{basename}")
+                symbols = sorted(symbol_map.get(node.id, []), key=lambda s: s.lineno)
+                if symbols:
+                    sym_lines = []
+                    for s in symbols:
+                        tag = "C" if s.type == "class" else "M"
+                        summary = f" -- {s.summary}" if s.summary else ""
+                        sym_lines.append(f"    [{tag}] {s.name}{summary}")
+                    for sidx, sl in enumerate(sym_lines):
+                        slast = sidx == len(sym_lines) - 1
+                        sconn = "\\-- " if slast else "+-- "
+                        lines.append(f"{prefix}{ext}{sconn}{sl}")
+
+    _render_dir(".")
+    lines.append("")
+
+    import_edges = [(s, t) for e in all_edges for s, t, r in [(e.source_id, e.target_id, e.relation)] if r == "imports"]
+    call_edges = [(s, t) for e in all_edges for s, t, r in [(e.source_id, e.target_id, e.relation)] if r == "calls"]
+
+    if import_edges:
+        lines.append(f"Imports ({len(import_edges)}):")
+        node_map = {n.id: n for n in all_nodes}
+        for src, tgt in sorted(import_edges, key=lambda x: (x[0], x[1]))[:20]:
+            sn = _short_name(src, node_map) or src
+            tn = _short_name(tgt, node_map) or tgt
+            lines.append(f"  {sn}  ->  {tn}")
+        if len(import_edges) > 20:
+            lines.append(f"  ... and {len(import_edges) - 20} more")
+
+    if call_edges:
+        lines.append(f"\nCalls ({len(call_edges)}):")
+        node_map = {n.id: n for n in all_nodes}
+        for src, tgt in sorted(call_edges, key=lambda x: (x[0], x[1]))[:15]:
+            sn = _short_name(src, node_map) or src
+            tn = _short_name(tgt, node_map) or tgt
+            lines.append(f"  {sn}  ->  {tn}")
+        if len(call_edges) > 15:
+            lines.append(f"  ... and {len(call_edges) - 15} more")
+
+    return "\n".join(lines)
+
+
 def _short_name(node_id: str, node_map: dict[str, Node]) -> Optional[str]:
     if node_id in node_map:
         n = node_map[node_id]

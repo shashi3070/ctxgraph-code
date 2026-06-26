@@ -24,6 +24,8 @@ DEFAULT_EXCLUDE = [
     ".tox",
     ".nox",
     "migrations",
+    "tests/",
+    "test/",
     "*.min.js",
     "*.min.css",
 ]

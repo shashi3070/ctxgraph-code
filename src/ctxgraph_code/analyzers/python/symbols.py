@@ -4,36 +4,56 @@ import ast
 from pathlib import Path
 from typing import Optional
 
-from ctxgraph_code.graph.models import Edge, Graph, Node
+from ctxgraph_code.graph.models import Graph
 
 
-def analyze_symbols(file_path: Path, root_path: Path) -> Graph:
-    graph = Graph()
+def analyze_symbols(
+    file_path: Path,
+    root_path: Path,
+    *,
+    source: Optional[str] = None,
+    tree: Optional[ast.AST] = None,
+) -> Graph:
     rel_path = _relative_path(file_path, root_path)
     file_node_id = f"file:{rel_path}"
 
-    try:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
-    except SyntaxError:
-        return graph
+    if tree is None:
+        try:
+            source = file_path.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(source)
+        except SyntaxError:
+            return Graph()
 
-    lines = source.split("\n")
+    lines = source.split("\n") if source else []
+    nodes: list[dict] = []
+    edges: list[dict] = []
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ClassDef):
-            _process_class(node, graph, file_node_id, rel_path, lines)
+            _process_class(node, nodes, edges, file_node_id, rel_path, lines)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _process_function(node, graph, file_node_id, rel_path, lines)
+            _process_function(node, nodes, edges, file_node_id, rel_path, lines)
 
-    _process_calls(tree, graph, rel_path)
+    _process_calls(tree, nodes, edges, rel_path)
 
-    return graph
+    return Graph.from_batch(nodes, edges)
+
+
+# ── helpers ─────────────────────────────────────────────────────────────────
+
+
+def _node_dict(**kw) -> dict:
+    return dict(kw)
+
+
+def _edge_dict(**kw) -> dict:
+    return dict(kw)
 
 
 def _process_class(
     node: ast.ClassDef,
-    graph: Graph,
+    nodes: list[dict],
+    edges: list[dict],
     file_node_id: str,
     rel_path: str,
     lines: list[str],
@@ -42,45 +62,40 @@ def _process_class(
     summary = _extract_docstring(node)
     bases = _get_base_names(node)
 
-    graph.add_node(
-        Node(
-            id=class_id,
-            type="class",
-            name=node.name,
-            path=rel_path,
-            parent_id=file_node_id,
-            summary=summary,
-            importance=0.6,
-            lineno=node.lineno,
-        )
-    )
-    graph.add_edge(
-        Edge(
-            source_id=file_node_id,
-            target_id=class_id,
-            relation="defines",
-            weight=1.0,
-        )
-    )
+    nodes.append(_node_dict(
+        id=class_id,
+        type="class",
+        name=node.name,
+        path=rel_path,
+        parent_id=file_node_id,
+        summary=summary,
+        importance=0.6,
+        lineno=node.lineno,
+    ))
+    edges.append(_edge_dict(
+        source_id=file_node_id,
+        target_id=class_id,
+        relation="defines",
+        weight=1.0,
+    ))
 
     for base in bases:
-        graph.add_edge(
-            Edge(
-                source_id=class_id,
-                target_id=base,
-                relation="extends",
-                weight=0.8,
-            )
-        )
+        edges.append(_edge_dict(
+            source_id=class_id,
+            target_id=base,
+            relation="extends",
+            weight=0.8,
+        ))
 
     for child in ast.iter_child_nodes(node):
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _process_method(child, graph, class_id, rel_path, lines)
+            _process_method(child, nodes, edges, class_id, rel_path, lines)
 
 
 def _process_function(
     node: (ast.FunctionDef | ast.AsyncFunctionDef),
-    graph: Graph,
+    nodes: list[dict],
+    edges: list[dict],
     file_node_id: str,
     rel_path: str,
     lines: list[str],
@@ -88,31 +103,28 @@ def _process_function(
     func_id = f"func:{rel_path}::{node.name}"
     summary = _extract_docstring(node)
 
-    graph.add_node(
-        Node(
-            id=func_id,
-            type="function",
-            name=node.name,
-            path=rel_path,
-            parent_id=file_node_id,
-            summary=summary,
-            importance=0.5,
-            lineno=node.lineno,
-        )
-    )
-    graph.add_edge(
-        Edge(
-            source_id=file_node_id,
-            target_id=func_id,
-            relation="defines",
-            weight=1.0,
-        )
-    )
+    nodes.append(_node_dict(
+        id=func_id,
+        type="function",
+        name=node.name,
+        path=rel_path,
+        parent_id=file_node_id,
+        summary=summary,
+        importance=0.5,
+        lineno=node.lineno,
+    ))
+    edges.append(_edge_dict(
+        source_id=file_node_id,
+        target_id=func_id,
+        relation="defines",
+        weight=1.0,
+    ))
 
 
 def _process_method(
     node: (ast.FunctionDef | ast.AsyncFunctionDef),
-    graph: Graph,
+    nodes: list[dict],
+    edges: list[dict],
     class_id: str,
     rel_path: str,
     lines: list[str],
@@ -120,45 +132,39 @@ def _process_method(
     method_id = f"func:{rel_path}::{node.name}"
     summary = _extract_docstring(node)
 
-    graph.add_node(
-        Node(
-            id=method_id,
-            type="function",
-            name=node.name,
-            path=rel_path,
-            parent_id=class_id,
-            summary=summary,
-            importance=0.5,
-            lineno=node.lineno,
-        )
-    )
-    graph.add_edge(
-        Edge(
-            source_id=class_id,
-            target_id=method_id,
-            relation="defines",
-            weight=1.0,
-        )
-    )
+    nodes.append(_node_dict(
+        id=method_id,
+        type="function",
+        name=node.name,
+        path=rel_path,
+        parent_id=class_id,
+        summary=summary,
+        importance=0.5,
+        lineno=node.lineno,
+    ))
+    edges.append(_edge_dict(
+        source_id=class_id,
+        target_id=method_id,
+        relation="defines",
+        weight=1.0,
+    ))
 
 
-def _process_calls(tree: ast.AST, graph: Graph, rel_path: str):
+def _process_calls(tree: ast.AST, nodes: list[dict], edges: list[dict], rel_path: str):
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func_name = _get_call_name(node.func)
             if func_name:
                 caller_id = _find_enclosing_symbol(tree, node, rel_path)
                 if caller_id:
-                    callee_node = _find_target_node(func_name, graph)
-                    if callee_node:
-                        graph.add_edge(
-                            Edge(
-                                source_id=caller_id,
-                                target_id=callee_node.id,
-                                relation="calls",
-                                weight=0.7,
-                            )
-                        )
+                    callee_id = _find_target_node(func_name, nodes)
+                    if callee_id:
+                        edges.append(_edge_dict(
+                            source_id=caller_id,
+                            target_id=callee_id,
+                            relation="calls",
+                            weight=0.7,
+                        ))
 
 
 def _get_call_name(node: ast.AST) -> Optional[str]:
@@ -191,10 +197,10 @@ def _contains_node(container: ast.AST, target: ast.AST) -> bool:
     return False
 
 
-def _find_target_node(name: str, graph: Graph) -> Optional[Node]:
-    for node in graph.nodes.values():
-        if node.type in ("function", "class") and node.name == name:
-            return node
+def _find_target_node(name: str, nodes: list[dict]) -> Optional[str]:
+    for nd in nodes:
+        if nd.get("type") in ("function", "class") and nd["name"] == name:
+            return nd["id"]
     return None
 
 

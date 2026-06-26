@@ -22,6 +22,19 @@ class Node:
     def __eq__(self, other):
         return isinstance(other, Node) and self.id == other.id
 
+    def to_dict(self) -> dict:
+        return dict(
+            id=self.id,
+            type=self.type,
+            name=self.name,
+            path=self.path,
+            parent_id=self.parent_id,
+            summary=self.summary,
+            importance=self.importance,
+            size_bytes=self.size_bytes,
+            lineno=self.lineno,
+        )
+
 
 @dataclass
 class Edge:
@@ -39,6 +52,14 @@ class Edge:
             and self.source_id == other.source_id
             and self.target_id == other.target_id
             and self.relation == other.relation
+        )
+
+    def to_dict(self) -> dict:
+        return dict(
+            source_id=self.source_id,
+            target_id=self.target_id,
+            relation=self.relation,
+            weight=self.weight,
         )
 
 
@@ -71,13 +92,15 @@ class Graph:
                 result.add(e.source_id)
         return list(result)
 
-    def merge(self, other: Graph):
-        for node_id, node in other.nodes.items():
-            if node_id not in self.nodes:
-                self.nodes[node_id] = node
-        existing = {(e.source_id, e.target_id, e.relation) for e in self.edges}
-        for e in other.edges:
-            key = (e.source_id, e.target_id, e.relation)
-            if key not in existing:
-                self.edges.append(e)
-                existing.add(key)
+    @staticmethod
+    def from_batch(nodes_list: list[dict], edges_list: list[dict]) -> Graph:
+        graph = Graph()
+        for nd in nodes_list:
+            graph.nodes[nd["id"]] = Node(**nd)
+        seen = set()
+        for ed in edges_list:
+            key = (ed["source_id"], ed["target_id"], ed["relation"])
+            if key not in seen:
+                seen.add(key)
+                graph.edges.append(Edge(**ed))
+        return graph

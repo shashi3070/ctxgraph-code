@@ -75,37 +75,31 @@ class Storage:
         )
         self.conn.commit()
 
-    def save_node(self, node: Node):
-        self.conn.execute(
-            """INSERT OR REPLACE INTO nodes
-               (id, type, name, path, parent_id, summary, importance, size_bytes, lineno)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                node.id,
-                node.type,
-                node.name,
-                node.path,
-                node.parent_id,
-                node.summary,
-                node.importance,
-                node.size_bytes,
-                node.lineno,
-            ),
-        )
-
-    def save_edge(self, edge: Edge):
-        self.conn.execute(
-            """INSERT OR REPLACE INTO edges
-               (source_id, target_id, relation, weight)
-               VALUES (?, ?, ?, ?)""",
-            (edge.source_id, edge.target_id, edge.relation, edge.weight),
-        )
-
     def save_graph(self, graph: Graph):
-        for node in graph.nodes.values():
-            self.save_node(node)
-        for edge in graph.edges:
-            self.save_edge(edge)
+        nodes_data = [
+            (n.id, n.type, n.name, n.path, n.parent_id, n.summary,
+             n.importance, n.size_bytes, n.lineno)
+            for n in graph.nodes.values()
+        ]
+        if nodes_data:
+            self.conn.executemany(
+                """INSERT OR REPLACE INTO nodes
+                   (id, type, name, path, parent_id, summary, importance, size_bytes, lineno)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                nodes_data,
+            )
+
+        edges_data = [
+            (e.source_id, e.target_id, e.relation, e.weight)
+            for e in graph.edges
+        ]
+        if edges_data:
+            self.conn.executemany(
+                """INSERT OR REPLACE INTO edges
+                   (source_id, target_id, relation, weight)
+                   VALUES (?, ?, ?, ?)""",
+                edges_data,
+            )
         self.conn.commit()
 
     def get_node(self, node_id: str) -> Optional[Node]:
@@ -209,6 +203,62 @@ class Storage:
             "edges": edge_count,
             "types": {r["type"]: r["cnt"] for r in type_counts},
         }
+
+    def delete_nodes_for_file(self, file_path: str):
+        """Remove all nodes and edges belonging to a file (for incremental rebuild)."""
+        cursor = self.conn.execute(
+            "SELECT id FROM nodes WHERE path = ?", (file_path,)
+        )
+        node_ids = [r[0] for r in cursor.fetchall()]
+        if not node_ids:
+            return
+        placeholders = ",".join("?" for _ in node_ids)
+        self.conn.execute(
+            "DELETE FROM edges WHERE source_id IN ({}) OR target_id IN ({})".format(
+                placeholders, placeholders
+            ),
+            node_ids + node_ids,
+        )
+        self.conn.execute(
+            f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids
+        )
+        self.conn.commit()
+
+    def get_nodes_by_file_path(self, file_path: str) -> list[Node]:
+        rows = self.conn.execute(
+            "SELECT * FROM nodes WHERE path = ?", (file_path,)
+        ).fetchall()
+        return [
+            Node(
+                id=r["id"],
+                type=r["type"],
+                name=r["name"],
+                path=r["path"],
+                parent_id=r["parent_id"],
+                summary=r["summary"],
+                importance=r["importance"],
+                size_bytes=r["size_bytes"],
+                lineno=r["lineno"],
+            )
+            for r in rows
+        ]
+
+    def get_file_paths(self) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT path FROM nodes WHERE type = 'file' AND path IS NOT NULL"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_content_hash(self, file_path: str) -> Optional[str]:
+        hashes_json = self.get_metadata("content_hashes")
+        if not hashes_json:
+            return None
+        try:
+            import json
+            stored = json.loads(hashes_json)
+            return stored.get(file_path)
+        except (json.JSONDecodeError, OSError):
+            return None
 
     def save_metadata(self, key: str, value: str):
         self.conn.execute(

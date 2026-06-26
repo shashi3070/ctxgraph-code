@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ctxgraph-code"
-version = "0.1.0"
+version = "0.6.2"
 description = "Code knowledge graph for Claude Code. Build a relationship graph of your Python codebase and query it during coding sessions."
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,6 +30,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+full = [
+    "tree-sitter>=0.22",
+    "tree-sitter-language-pack>=0.13",
+]
 dev = [
     "pytest>=7.0",
 ]

@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Optional
 
 from ctxgraph_code.graph.models import Node
 
 
-def enrich_node_summary(node: Node, file_path: Path) -> str:
+def enrich_node_summary(
+    node: Node,
+    file_path: Path,
+    *,
+    source: Optional[str] = None,
+    tree: Optional[ast.AST] = None,
+) -> str:
     if node.summary:
         return node.summary
 
-    try:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
-    except (SyntaxError, FileNotFoundError):
-        return node.summary or ""
+    if tree is None:
+        try:
+            source = file_path.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(source)
+        except (SyntaxError, FileNotFoundError):
+            return node.summary or ""
 
     if node.type == "file":
         return _summarize_file(tree, file_path)
